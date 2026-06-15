@@ -1,4 +1,5 @@
 import apiClient from '../../api/apiClient';
+import { ApiResponse } from '../../types/api';
 
 export interface CreateTaskPayload {
     projectId: string;
@@ -43,8 +44,7 @@ export interface ApiTaskProject {
     name: string;
 }
 
-export interface GetTasksResponseData {
-    data: ApiTask[];
+export interface GetTasksApiResponse extends ApiResponse<ApiTask[]> {
     projects: ApiTaskProject[];
 }
 
@@ -63,17 +63,17 @@ const TASK_ENDPOINTS = {
  * Returns both tasks and projects from the API response.
  */
 export const getAllTasks = async (): Promise<GetTasksResponse> => {
-    const response = await apiClient.get<GetTasksResponseData>(TASK_ENDPOINTS.GET_ALL);
+    const response = await apiClient.get<ApiTask[]>(TASK_ENDPOINTS.GET_ALL) as GetTasksApiResponse;
 
     if (!response.success || !response.data) {
         throw new Error(response.message ?? 'Failed to fetch tasks. Please try again.');
     }
 
-    console.log('API response for getAllTasks:', response.data);
+    console.log('API response for getAllTasks:', response);
 
     return {
-        tasks: response.data?.data || [],
-        projects: response.data?.projects || [],
+        tasks: response.data || [],
+        projects: response.projects || [],
     };
 };
 
