@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import {
   User,
   Project,
@@ -33,6 +34,9 @@ import {
 import { STORAGE_KEYS } from "./constants/storageKeys";
 
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   // Authentication & Navigation Route States
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
@@ -43,10 +47,15 @@ export default function App() {
       return null;
     }
   });
-  const [authRoute, setAuthRoute] = useState<"login" | "register">("login");
-  const [currentView, setCurrentView] = useState<
-    "dashboard" | "projects" | "tasks" | "kanban" | "chat"
-  >("dashboard");
+
+  const currentView = (() => {
+    const path = location.pathname;
+    if (path.startsWith("/projects")) return "projects";
+    if (path.startsWith("/tasks")) return "tasks";
+    if (path.startsWith("/kanban")) return "kanban";
+    if (path.startsWith("/chat")) return "chat";
+    return "dashboard";
+  })();
 
   // Unified In-Memory Datasets
   const [projectsList, setProjectsList] = useState<Project[]>([]);
@@ -169,17 +178,25 @@ export default function App() {
     setNewTaskDesc("");
   };
 
+  // Unified navigation helper that resets the search query when switching views
+  const handleNavigate = (
+    view: "dashboard" | "projects" | "tasks" | "kanban" | "chat"
+  ) => {
+    navigate("/" + view);
+    setSearchQuery("");
+  };
+
   // Auth Action Handlers
   const handleLoginSuccess = (user: User) => {
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
     setCurrentUser(user);
-    setCurrentView("dashboard");
+    handleNavigate("dashboard");
   };
 
   const handleRegisterSuccess = (user: User) => {
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
     setCurrentUser(user);
-    setCurrentView("dashboard");
+    handleNavigate("dashboard");
   };
 
   const handleLogout = () => {
@@ -187,7 +204,7 @@ export default function App() {
     localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
     setCurrentUser(null);
-    setAuthRoute("login");
+    navigate("/login");
   };
 
   // Dynamic Content Filtering based on Search Box (Header)
@@ -357,252 +374,253 @@ export default function App() {
   // Navigation callbacks directed from cards
   const handleSelectTaskFromOuter = (task: Task) => {
     // Navigate straight to Kanban board and trigger select drawer
-    setCurrentView("kanban");
+    handleNavigate("kanban");
   };
 
   // Find active channel info
   const activeChannel =
     channels.find((c) => c.id === selectedChannelId) || channels[1];
 
-  // Auth view branch gates
-  if (!currentUser) {
-    if (authRoute === "register") {
-      return (
-        <RegisterView
-          onRegisterSuccess={handleRegisterSuccess}
-          onNavigateToLogin={() => setAuthRoute("login")}
-        />
-      );
-    }
-    return (
-      <LoginView
-        onLoginSuccess={handleLoginSuccess}
-        onNavigateToRegister={() => setAuthRoute("register")}
-      />
-    );
-  }
-
+  // Auth view branch gates & Routes setup
   return (
-    <div className="flex h-screen overflow-hidden bg-surface select-none text-on-surface">
-      {/* Smart adaptative navigation column header left (Screen 1-7 Left margin) */}
-      <Sidebar
-        currentView={currentView}
-        onNavigate={(view) => {
-          setCurrentView(view);
-          setSearchQuery("");
-        }}
-        currentUser={currentUser}
-        onLogout={handleLogout}
-        selectedChannelId={selectedChannelId}
-        onSelectChannel={setSelectedChannelId}
-        openNewProjectModal={() => {
-          setModalType("project");
-          setShowCreateModal(true);
-        }}
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          currentUser ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <LoginView
+              onLoginSuccess={handleLoginSuccess}
+              onNavigateToRegister={() => navigate("/register")}
+            />
+          )
+        }
       />
-
-      {/* Main viewport column panel */}
-      <main className="flex-1 flex flex-col pl-[280px] overflow-hidden">
-        {/* Dynamic header tracker top */}
-        <Header
-          currentView={currentView}
-          currentUser={currentUser}
-          activeChannel={activeChannel}
-          onToggleInfoPane={() => setInfoPaneOpen(!infoPaneOpen)}
-          infoPaneOpen={infoPaneOpen}
-          searchQuery={searchQuery}
-          onSearch={setSearchQuery}
-          onOpenCreateModal={() => {
-            setModalType(currentView === "projects" ? "project" : "task");
-            setShowCreateModal(true);
-          }}
-        />
-
-        {/* Content Views Stage space */}
-        <div className="flex-1 overflow-y-auto px-lg py-md custom-scrollbar bg-[#f8f9ff]">
-          {currentView === "dashboard" && (
-            <DashboardView onNavigate={setCurrentView} />
-          )}
-
-          {currentView === "projects" && (
-            <ProjectsView
-              projects={getFilteredProjects()}
-              onOpenCreateModal={() => {
-                setModalType("project");
-                setShowCreateModal(true);
-              }}
-              onNavigate={setCurrentView}
-              isLoading={projectsLoading}
-              error={projectsError}
+      <Route
+        path="/register"
+        element={
+          currentUser ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <RegisterView
+              onRegisterSuccess={handleRegisterSuccess}
+              onNavigateToLogin={() => navigate("/login")}
             />
-          )}
-
-          {currentView === "tasks" && (
-            <TasksView
-              tasks={getFilteredTasks()}
-              projects={projectsList}
-              onSelectTask={handleSelectTaskFromOuter}
-              isLoading={tasksLoading}
-              error={tasksError}
-              onTaskCreated={() => {
-                // Refetch tasks and projects after successful task creation
-                fetchTasksAndProjects();
-              }}
-            />
-          )}
-
-          {/* {currentView === 'kanban' && (
-            <KanbanView
-              tasks={getFilteredTasks()}
-              onUpdateTaskStatus={handleUpdateTaskStatus}
-              onUpdateSubtask={handleUpdateSubtask}
-              onAddTaskComment={handleAddTaskComment}
-              onOpenCreateModal={() => {
-                setModalType('task');
-                setShowCreateModal(true);
-              }}
-            />
-          )} */}
-
-          {/* {currentView === 'chat' && (
-            <ChatView
-              channel={activeChannel}
-              messages={chatMessages}
-              onSendMessage={handleSendChatMessage}
-              onSendCodeSnippet={handleSendCodeSnippet}
-              infoPaneOpen={infoPaneOpen}
-              onToggleInfoPane={() => setInfoPaneOpen(!infoPaneOpen)}
-            />
-          )} */}
-        </div>
-      </main>
-
-      {/* Shared Interactive Creator Dialog Modal overlay */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-md">
-          <div className="bg-white border border-border-subtle rounded-2xl w-full max-w-[500px] p-lg shadow-2xl animate-scale-up flex flex-col gap-md">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-border-subtle pb-xs">
-              <div className="flex items-center gap-sm">
-                <span className="w-2.5 h-2.5 bg-primary rounded-full" />
-                <h3 className="font-headline font-bold text-sm text-on-surface">
-                  Initiate New Project
-                </h3>
-              </div>
-              <button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  resetFormFields();
+          )
+        }
+      />
+      <Route
+        path="/*"
+        element={
+          !currentUser ? (
+            <Navigate to="/login" replace />
+          ) : (
+            <div className="flex h-screen overflow-hidden bg-surface select-none text-on-surface">
+              {/* Smart adaptative navigation column header left (Screen 1-7 Left margin) */}
+              <Sidebar
+                currentView={currentView}
+                onNavigate={handleNavigate}
+                currentUser={currentUser}
+                onLogout={handleLogout}
+                selectedChannelId={selectedChannelId}
+                onSelectChannel={setSelectedChannelId}
+                openNewProjectModal={() => {
+                  setModalType("project");
+                  setShowCreateModal(true);
                 }}
-                className="p-1 rounded-full text-secondary hover:bg-surface-container active:scale-90"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+              />
 
-            {/* Project Form */}
-            <div className="space-y-sm text-xs text-on-surface-variant font-sans select-text">
-              <div>
-                <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
-                  Project Name *
-                </label>
-                <input
-                  type="text"
-                  value={newProjName}
-                  onChange={(e) => setNewProjName(e.target.value)}
-                  placeholder="e.g. Vision Mobile App Redesign"
-                  className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs focus:border-primary outline-none"
-                  required
+              {/* Main viewport column panel */}
+              <main className="flex-1 flex flex-col pl-[280px] overflow-hidden">
+                {/* Dynamic header tracker top */}
+                <Header
+                  currentView={currentView}
+                  currentUser={currentUser}
+                  activeChannel={activeChannel}
+                  onToggleInfoPane={() => setInfoPaneOpen(!infoPaneOpen)}
+                  infoPaneOpen={infoPaneOpen}
+                  searchQuery={searchQuery}
+                  onSearch={setSearchQuery}
+                  onOpenCreateModal={() => {
+                    setModalType(currentView === "projects" ? "project" : "task");
+                    setShowCreateModal(true);
+                  }}
                 />
-              </div>
 
-              <div>
-                <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
-                  Description
-                </label>
-                <textarea
-                  value={newProjDesc}
-                  onChange={(e) => setNewProjDesc(e.target.value)}
-                  placeholder="Describe the project goals and scope..."
-                  className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl p-md text-xs min-h-[80px] resize-none outline-none focus:border-primary"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
-                  Status
-                </label>
-                <select
-                  value={newProjStatus}
-                  onChange={(e) =>
-                    setNewProjStatus(
-                      e.target.value as "active" | "on-hold" | "completed",
-                    )
-                  }
-                  className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-3 text-xs outline-none focus:border-primary"
-                >
-                  <option value="active">Active</option>
-                  <option value="on-hold">On Hold</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-sm">
-                <div>
-                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
-                    Start Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={newProjStartDate}
-                    onChange={(e) => setNewProjStartDate(e.target.value)}
-                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs outline-none focus:border-primary"
-                  />
+                {/* Content Views Stage space */}
+                <div className="flex-1 overflow-y-auto px-lg py-md custom-scrollbar bg-[#f8f9ff]">
+                  <Routes>
+                    <Route path="/dashboard" element={<DashboardView onNavigate={handleNavigate} />} />
+                    <Route
+                      path="/projects"
+                      element={
+                        <ProjectsView
+                          projects={getFilteredProjects()}
+                          onOpenCreateModal={() => {
+                            setModalType("project");
+                            setShowCreateModal(true);
+                          }}
+                          onNavigate={handleNavigate}
+                          isLoading={projectsLoading}
+                          error={projectsError}
+                        />
+                      }
+                    />
+                    <Route
+                      path="/tasks"
+                      element={
+                        <TasksView
+                          tasks={getFilteredTasks()}
+                          projects={projectsList}
+                          onSelectTask={handleSelectTaskFromOuter}
+                          isLoading={tasksLoading}
+                          error={tasksError}
+                          onTaskCreated={() => {
+                            // Refetch tasks and projects after successful task creation
+                            fetchTasksAndProjects();
+                          }}
+                        />
+                      }
+                    />
+                    <Route path="/kanban" element={<KanbanView tasks={getFilteredTasks()} onUpdateTaskStatus={handleUpdateTaskStatus} onUpdateSubtask={handleUpdateSubtask} onAddTaskComment={handleAddTaskComment} onOpenCreateModal={() => { }}
+                    />} />
+                    <Route path="/chat" element={<ChatView channel={activeChannel} messages={chatMessages} onSendMessage={handleSendChatMessage} onSendCodeSnippet={handleSendCodeSnippet} infoPaneOpen={infoPaneOpen} onToggleInfoPane={() => setInfoPaneOpen(!infoPaneOpen)} />} />
+                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                  </Routes>
                 </div>
+              </main>
 
-                <div>
-                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
-                    End Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={newProjEndDate}
-                    onChange={(e) => setNewProjEndDate(e.target.value)}
-                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs outline-none focus:border-primary"
-                  />
+              {/* Shared Interactive Creator Dialog Modal overlay */}
+              {showCreateModal && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-md">
+                  <div className="bg-white border border-border-subtle rounded-2xl w-full max-w-[500px] p-lg shadow-2xl animate-scale-up flex flex-col gap-md">
+                    {/* Header */}
+                    <div className="flex items-center justify-between border-b border-border-subtle pb-xs">
+                      <div className="flex items-center gap-sm">
+                        <span className="w-2.5 h-2.5 bg-primary rounded-full" />
+                        <h3 className="font-headline font-bold text-sm text-on-surface">
+                          Initiate New Project
+                        </h3>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowCreateModal(false);
+                          resetFormFields();
+                        }}
+                        className="p-1 rounded-full text-secondary hover:bg-surface-container active:scale-90"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Project Form */}
+                    <div className="space-y-sm text-xs text-on-surface-variant font-sans select-text">
+                      <div>
+                        <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
+                          Project Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={newProjName}
+                          onChange={(e) => setNewProjName(e.target.value)}
+                          placeholder="e.g. Vision Mobile App Redesign"
+                          className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs focus:border-primary outline-none"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
+                          Description
+                        </label>
+                        <textarea
+                          value={newProjDesc}
+                          onChange={(e) => setNewProjDesc(e.target.value)}
+                          placeholder="Describe the project goals and scope..."
+                          className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl p-md text-xs min-h-[80px] resize-none outline-none focus:border-primary"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
+                          Status
+                        </label>
+                        <select
+                          value={newProjStatus}
+                          onChange={(e) =>
+                            setNewProjStatus(
+                              e.target.value as "active" | "on-hold" | "completed",
+                            )
+                          }
+                          className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-3 text-xs outline-none focus:border-primary"
+                        >
+                          <option value="active">Active</option>
+                          <option value="on-hold">On Hold</option>
+                          <option value="completed">Completed</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-sm">
+                        <div>
+                          <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
+                            Start Date *
+                          </label>
+                          <input
+                            type="date"
+                            value={newProjStartDate}
+                            onChange={(e) => setNewProjStartDate(e.target.value)}
+                            className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs outline-none focus:border-primary"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">
+                            End Date *
+                          </label>
+                          <input
+                            type="date"
+                            value={newProjEndDate}
+                            onChange={(e) => setNewProjEndDate(e.target.value)}
+                            className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs outline-none focus:border-primary"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Error message */}
+                      {projCreateError && (
+                        <p className="text-[11px] text-red-500 bg-red-50 border border-red-200 rounded-lg px-sm py-xs">
+                          {projCreateError}
+                        </p>
+                      )}
+
+                      <button
+                        onClick={handleCreateProject}
+                        disabled={
+                          !newProjName.trim() ||
+                          !newProjStartDate ||
+                          !newProjEndDate ||
+                          projCreateLoading
+                        }
+                        className="w-full bg-primary hover:bg-[#6161ff] text-white py-2 px-4 rounded-xl text-xs font-headline font-bold mt-sm transition-all shadow-lg select-none disabled:opacity-50 flex items-center justify-center gap-xs"
+                      >
+                        {projCreateLoading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Creating...</span>
+                          </>
+                        ) : (
+                          "Create Project"
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-
-              {/* Error message */}
-              {projCreateError && (
-                <p className="text-[11px] text-red-500 bg-red-50 border border-red-200 rounded-lg px-sm py-xs">
-                  {projCreateError}
-                </p>
               )}
-
-              <button
-                onClick={handleCreateProject}
-                disabled={
-                  !newProjName.trim() ||
-                  !newProjStartDate ||
-                  !newProjEndDate ||
-                  projCreateLoading
-                }
-                className="w-full bg-primary hover:bg-[#6161ff] text-white py-2 px-4 rounded-xl text-xs font-headline font-bold mt-sm transition-all shadow-lg select-none disabled:opacity-50 flex items-center justify-center gap-xs"
-              >
-                {projCreateLoading ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Creating...</span>
-                  </>
-                ) : (
-                  "Create Project"
-                )}
-              </button>
             </div>
-          </div>
-        </div>
-      )}
-    </div>
+          )
+        }
+      />
+    </Routes>
   );
 }
