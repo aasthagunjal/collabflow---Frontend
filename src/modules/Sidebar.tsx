@@ -64,8 +64,8 @@ export default function Sidebar({
         <button
           onClick={() => onNavigate('dashboard')}
           className={`flex items-center gap-sm p-sm rounded-lg transition-all duration-200 text-left ${currentView === 'dashboard'
-              ? 'bg-[#e5eeff] text-[#4744e5] font-semibold'
-              : 'text-[#5a5c79] hover:bg-[#eff4ff]'
+            ? 'bg-[#e5eeff] text-[#4744e5] font-semibold'
+            : 'text-[#5a5c79] hover:bg-[#eff4ff]'
             }`}
         >
           <LayoutDashboard className="w-[18px] h-[18px] shrink-0" />
@@ -75,19 +75,19 @@ export default function Sidebar({
         <button
           onClick={() => onNavigate('projects')}
           className={`flex items-center gap-sm p-sm rounded-lg transition-all duration-200 text-left ${currentView === 'projects'
-              ? 'bg-[#e5eeff] text-[#4744e5] font-semibold'
-              : 'text-[#5a5c79] hover:bg-[#eff4ff]'
+            ? 'bg-[#e5eeff] text-[#4744e5] font-semibold'
+            : 'text-[#5a5c79] hover:bg-[#eff4ff]'
             }`}
         >
           <FolderGit2 className="w-[18px] h-[18px] shrink-0" />
-          <span className="font-headline text-xs">Workspace</span>
+          <span className="font-headline text-xs">Projects</span>
         </button>
 
         <button
           onClick={() => onNavigate('tasks')}
           className={`flex items-center gap-sm p-sm rounded-lg transition-all duration-200 text-left ${currentView === 'tasks'
-              ? 'bg-[#e5eeff] text-[#4744e5] font-semibold'
-              : 'text-[#5a5c79] hover:bg-[#eff4ff]'
+            ? 'bg-[#e5eeff] text-[#4744e5] font-semibold'
+            : 'text-[#5a5c79] hover:bg-[#eff4ff]'
             }`}
         >
           <ListTodo className="w-[18px] h-[18px] shrink-0" />
@@ -142,8 +142,8 @@ export default function Sidebar({
                     key={chan.id}
                     onClick={() => onSelectChannel(chan.id)}
                     className={`flex items-center gap-2 px-sm py-xs rounded-lg transition-colors text-left w-full ${isActive
-                        ? 'bg-surface-container-high text-primary font-bold'
-                        : 'text-on-surface-variant hover:bg-surface-container-low'
+                      ? 'bg-surface-container-high text-primary font-bold'
+                      : 'text-on-surface-variant hover:bg-surface-container-low'
                       }`}
                   >
                     {chan.isPrivate ? (

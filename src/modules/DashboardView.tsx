@@ -1,264 +1,327 @@
-import React, { useState } from 'react';
-import { 
-  Folder, 
-  CheckSquare, 
-  Users, 
-  Clock, 
-  ArrowUpRight, 
-  ArrowDownRight,
-  ChevronLeft,
-  ChevronRight,
+import React, { useEffect, useState } from 'react';
+import {
+  Folder,
+  CheckSquare,
+  Users,
+  Clock,
   TrendingUp,
-  TrendingDown,
   CalendarDays,
-  ExternalLink,
-  MessageSquare
+  AlertCircle,
 } from 'lucide-react';
-import { Project, Task, RecentActivity, User } from '../types';
-import { recentActivities } from '../data';
+import { getDashboard, DashboardData } from '../services/dashboard/dashboardService';
 
 interface DashboardViewProps {
-  projects: Project[];
-  tasks: Task[];
   onNavigate: (view: 'dashboard' | 'projects' | 'tasks' | 'kanban' | 'chat') => void;
-  onSelectTask?: (task: Task) => void;
 }
 
-export default function DashboardView({
-  projects,
-  tasks,
-  onNavigate,
-  onSelectTask
-}: DashboardViewProps) {
-  const [filterPeriod, setFilterPeriod] = useState<'7' | '30'>('7');
+/** Reusable shimmer block */
+const Shimmer = ({ className }: { className: string }) => (
+  <div className={`shimmer rounded-lg ${className}`} />
+);
 
-  // KPI Calculations
-  const totalProjects = projects.length + 43; // to match "48" in mockup
-  const totalTasks = tasks.length + 1228; // to match "1240" in mockup
-  const activeUsers = 312; 
-  const completedTasksCount = tasks.filter(t => t.status === 'Done').length + 880; // match "892"
+const PRIORITY_STYLE: Record<string, string> = {
+  high: 'bg-[#ffdad6] text-[#93000a]',
+  medium: 'bg-[#dfe0ff] text-[#161a32]',
+  low: 'bg-[#eff4ff] text-[#424560]',
+  critical: 'bg-red-100 text-red-700',
+};
 
-  // Filter tasks with deadlines
-  const upcomingDeadlines = tasks
-    .filter(t => t.dueDate && t.status !== 'Done')
-    .slice(0, 4);
+const STATUS_STYLE: Record<string, string> = {
+  open: 'bg-[#eff4ff] text-primary',
+  'in-progress': 'bg-[#e5eeff] text-[#4744e5]',
+  review: 'bg-[#ffdbc9] text-[#753400]',
+  done: 'bg-emerald-50 text-emerald-600',
+};
 
-  // Productivity chart data
-  const chartData = {
-    '7': [
-      { day: 'Mon', total: 32, user: 20 },
-      { day: 'Tue', total: 40, user: 28 },
-      { day: 'Wed', total: 48, user: 36 },
-      { day: 'Thu', total: 36, user: 24 },
-      { day: 'Fri', total: 56, user: 44 },
-      { day: 'Sat', total: 28, user: 16 },
-      { day: 'Sun', total: 20, user: 8 }
-    ],
-    '30': [
-      { day: 'Mon', total: 45, user: 30 },
-      { day: 'Tue', total: 55, user: 40 },
-      { day: 'Wed', total: 60, user: 45 },
-      { day: 'Thu', total: 42, user: 28 },
-      { day: 'Fri', total: 68, user: 52 },
-      { day: 'Sat', total: 32, user: 22 },
-      { day: 'Sun', total: 25, user: 12 }
-    ]
-  };
+const formatDate = (d: string) => {
+  const date = new Date(d);
+  return isNaN(date.getTime()) ? d : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+export default function DashboardView({ onNavigate }: DashboardViewProps) {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetch = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await getDashboard();
+        setData(result);
+      } catch (err: any) {
+        setError(err.message ?? 'Failed to load dashboard.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch();
+  }, []);
+
+  const summary = data?.summary;
+  const productivity = data?.teamProductivity;
+  const activities = data?.recentActivities ?? [];
+  const deadlines = data?.upcomingDeadlines ?? [];
+  const projectProgress = data?.projectProgress?.projects ?? [];
+
+  // Chart: normalise series values to percentages
+  const maxVal = Math.max(1, ...(productivity?.series.map(s => s.value) ?? [1]));
 
   return (
     <div className="space-y-lg animate-fade-in pb-xl">
-      {/* Dashboard Greetings Header */}
+      {/* Header */}
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="font-headline font-semibold text-2xl text-on-surface">Task Management Dashboard</h2>
+          <h2 className="font-headline font-semibold text-2xl text-on-surface">Dashboard</h2>
           <p className="text-secondary font-sans text-xs mt-[2px]">Track and manage your team's engineering workflows.</p>
-        </div>
-        <div className="flex -space-x-2 select-none shrink-0 border border-border-subtle p-px rounded-full bg-white bg-opacity-40">
-          <img 
-            className="w-8 h-8 rounded-full border-2 border-white object-cover" 
-            src="https://lh3.googleusercontent.com/aida-public/AB6AXuB6XGKQiSmv0QFnrf-wK_nX-dfBQYBqDtQ0ib6YMUPemOpGLdTqMkR8Hel2eLHINUIHmxc7VAZxjhqe81ZCjIvAG0324C8-NT5Uczqr9YtWRAP85qNU8xPqP_BsjgFY8ElbYvorVC_n8pYKbrVTkhokrAKdRkKoHXwpuohPdAame3X978a4nRw2CpN6TAjecTYnSU43sVZcfXALZCBtwmLf3e3AX2uwT1LzAT008ZkpE54vgYiZiHig_b1bxzq3BcHPzV1iuVdxw4E" 
-            alt="Team 1"
-          />
-          <img 
-            className="w-8 h-8 rounded-full border-2 border-white object-cover" 
-            src="https://lh3.googleusercontent.com/aida-public/AB6AXuBXchC82YRipvuHvd7Q0vqDJrymg_Sql3kb4uippJNq5-z6HPuT7gizq6OHUO0VXhDIRWXarWGGYv0v3Chrt_e8htTIxoXCRoRxLdtGRjIc5PpW55aIM9hGs60pHSYzjdiq5PjwoxRy1IlXaCLQ25566RBwG_QAKzq5pZvQmUl5n18PQMOGp2Zk3xSAtzQ4OAxJJuRb0KapaHfcWp9sdXjdxm551QSN7jwDaiW4JSFrKV-QgDb35Z7JPMTWrc6BiWE0lLaz_tFy-vQ" 
-            alt="Team 2"
-          />
-          <div className="w-8 h-8 rounded-full border-2 border-white bg-[#e1dfff] flex items-center justify-center font-bold text-[10px] text-on-primary-fixed border border-primary/10">+12</div>
         </div>
       </div>
 
-      {/* KPI Cards Section */}
+      {/* Error banner */}
+      {!loading && error && (
+        <div className="flex items-center gap-sm bg-red-50 border border-red-200 rounded-xl px-lg py-md">
+          <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
+
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
-        {/* Total Projects Card */}
-        <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm group hover:border-primary transition-all duration-300">
+        {/* Total Projects */}
+        <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm hover:border-primary transition-all duration-300">
           <div className="flex justify-between items-start mb-sm">
             <div className="p-sm bg-surface-container rounded-lg text-primary">
               <Folder className="w-5 h-5 shrink-0" />
             </div>
-            <span className="text-success-emerald font-sans text-xs font-semibold flex items-center gap-xs">
-              <TrendingUp className="w-3 h-3 text-success-emerald shrink-0" /> 12%
-            </span>
           </div>
-          <p className="text-secondary font-sans text-xs">Total Projects</p>
-          <h3 className="font-headline font-extrabold text-2xl text-on-surface tnum mt-1">{totalProjects}</h3>
+          <p className="text-on-surface font-sans text-xs font-bold">Total Projects</p>
+          {loading ? (
+            <Shimmer className="h-8 w-16 mt-1" />
+          ) : (
+            <h3 className="font-headline font-semibold text-2xl text-on-surface tnum mt-1">
+              {summary?.totalProjects ?? 0}
+            </h3>
+          )}
         </div>
 
-        {/* Total Tasks Card */}
-        <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm group hover:border-primary transition-all duration-300">
+        {/* Total Tasks */}
+        <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm hover:border-primary transition-all duration-300">
           <div className="flex justify-between items-start mb-sm">
             <div className="p-sm bg-surface-container rounded-lg text-primary">
               <CheckSquare className="w-5 h-5 shrink-0" />
             </div>
-            <span className="text-success-emerald font-sans text-xs font-semibold flex items-center gap-xs">
-              <TrendingUp className="w-3 h-3 text-success-emerald shrink-0" /> 8.4%
-            </span>
           </div>
-          <p className="text-secondary font-sans text-xs">Total Tasks</p>
-          <h3 className="font-headline font-extrabold text-2xl text-on-surface tnum mt-1">{totalTasks.toLocaleString()}</h3>
+          <p className="text-on-surface font-sans text-xs font-bold">Total Tasks</p>
+          {loading ? (
+            <Shimmer className="h-8 w-16 mt-1" />
+          ) : (
+            <h3 className="font-headline font-semibold text-2xl text-on-surface tnum mt-1">
+              {summary?.totalTasks ?? 0}
+            </h3>
+          )}
         </div>
 
-        {/* Active Users Card */}
-        <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm group hover:border-primary transition-all duration-300">
+        {/* Active Users */}
+        <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm hover:border-primary transition-all duration-300">
           <div className="flex justify-between items-start mb-sm">
             <div className="p-sm bg-surface-container rounded-lg text-primary">
               <Users className="w-5 h-5 shrink-0" />
             </div>
-            <span className="text-error-crimson font-sans text-xs font-semibold flex items-center gap-xs">
-              <TrendingDown className="w-3 h-3 text-error-crimson shrink-0 text-red-500" /> 2%
-            </span>
           </div>
-          <p className="text-secondary font-sans text-xs">Active Users</p>
-          <h3 className="font-headline font-extrabold text-2xl text-on-surface tnum mt-1">{activeUsers}</h3>
+          <p className="text-on-surface font-sans text-xs font-bold">Active Users</p>
+          {loading ? (
+            <Shimmer className="h-8 w-16 mt-1" />
+          ) : (
+            <h3 className="font-headline font-semibold text-2xl text-on-surface tnum mt-1">
+              {summary?.activeUsers ?? 0}
+            </h3>
+          )}
         </div>
 
-        {/* Completed Tasks Card */}
-        <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm group hover:border-primary transition-all duration-300">
+        {/* Completed Tasks */}
+        <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm hover:border-primary transition-all duration-300">
           <div className="flex justify-between items-start mb-sm">
             <div className="p-sm bg-surface-container rounded-lg text-primary">
-              <CheckSquare className="w-5 h-5 shrink-0" />
+              <Clock className="w-5 h-5 shrink-0" />
             </div>
-            <span className="text-success-emerald font-sans text-xs font-semibold flex items-center gap-xs">
-              <TrendingUp className="w-3 h-3 text-success-emerald shrink-0" /> 24%
-            </span>
           </div>
-          <p className="text-secondary font-sans text-xs">Completed Tasks</p>
-          <h3 className="font-headline font-extrabold text-2xl text-on-surface tnum mt-1">{completedTasksCount}</h3>
+          <p className="text-on-surface font-sans text-xs font-bold">Completed Tasks</p>
+          {loading ? (
+            <Shimmer className="h-8 w-16 mt-1" />
+          ) : (
+            <h3 className="font-headline font-semibold text-2xl text-on-surface tnum mt-1">
+              {summary?.completedTasks ?? 0}
+            </h3>
+          )}
         </div>
       </div>
 
-      {/* Middle Content: Charts & Recent Activity */}
+      {/* Middle: Chart + Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
-        {/* Productivity Chart Pane (Screen 7 Center) */}
+
+        {/* Team Productivity Chart */}
         <div className="lg:col-span-2 bg-white p-lg rounded-xl border border-border-subtle shadow-sm">
           <div className="flex justify-between items-center mb-xl">
             <div>
               <h4 className="font-headline font-bold text-sm text-on-surface">Team Productivity</h4>
-              <p className="text-secondary font-sans text-xs">Daily output across all workspace departments</p>
+              <p className="text-secondary font-sans text-xs">
+                {productivity?.label ?? 'Last 7 Days'} — tasks completed per day
+              </p>
             </div>
-            <select 
-              value={filterPeriod}
-              onChange={(e) => setFilterPeriod(e.target.value as '7' | '30')}
-              className="bg-bg-slate-50 border border-outline-variant rounded-lg text-xs font-headline font-semibold py-1 px-3 outline-none cursor-pointer"
-            >
-              <option value="7">Last 7 Days</option>
-              <option value="30">Last 30 Days</option>
-            </select>
           </div>
 
-          {/* Productivity bar chart columns */}
-          <div className="h-64 flex items-end justify-between gap-md pt-md relative">
-            {chartData[filterPeriod].map((data, idx) => {
-              // Calculate screen percentages to display columns
-              const totalHeightPercent = Math.min(100, (data.total / 70) * 100);
-              const userHeightPercent = Math.min(100, (data.user / 70) * 100);
-
-              return (
-                <div key={idx} className="relative group w-full flex flex-col justify-end items-center h-full">
-                  {/* Total Output Stack (Light blue wash) */}
-                  <div 
-                    style={{ height: `${totalHeightPercent}%` }}
-                    className="bg-[#e1dfff] hover:bg-opacity-80 w-full rounded-t-lg transition-all"
-                  />
-                  {/* User Output Stack (Solid indigo action color) */}
-                  <div 
-                    style={{ height: `${userHeightPercent}%` }}
-                    className="bg-[#4744e5] hover:bg-primary-container w-full rounded-t-lg absolute bottom-0 transition-all pointer-events-none"
-                  />
-                  {/* Tooltip on hover */}
-                  <div className="absolute opacity-0 group-hover:opacity-100 bg-[#213145] text-white text-[10px] rounded p-2 -top-12 z-10 transition-opacity whitespace-nowrap shadow pointer-events-none">
-                    <p className="font-bold">{data.day} Output</p>
-                    <p>Total: {data.total} tasks</p>
-                    <p>Primary: {data.user} tasks</p>
-                  </div>
-                  <p className="text-[10px] text-center mt-sm text-secondary font-sans font-medium">{data.day}</p>
+          {loading ? (
+            <div className="h-64 flex items-end justify-between gap-md pt-md">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="flex-1 flex flex-col justify-end items-center h-full gap-sm">
+                  <Shimmer className={`w-full`} style={{ height: `${30 + Math.random() * 50}%` } as any} />
+                  <Shimmer className="h-3 w-8" />
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="h-64 flex items-end justify-between gap-md pt-md relative">
+              {(productivity?.series ?? []).map((point, idx) => {
+                const heightPercent = Math.max(4, (point.value / maxVal) * 100);
+                const label = new Date(point.date).toLocaleDateString('en-US', { weekday: 'short' });
+                return (
+                  <div key={idx} className="relative group w-full flex flex-col justify-end items-center h-full">
+                    <div
+                      style={{ height: `${heightPercent}%` }}
+                      className="bg-[#4744e5] hover:bg-primary-container w-full rounded-t-lg transition-all"
+                    />
+                    <div className="absolute opacity-0 group-hover:opacity-100 bg-[#213145] text-white text-[10px] rounded p-2 -top-12 z-10 transition-opacity whitespace-nowrap shadow pointer-events-none">
+                      <p className="font-bold">{point.date}</p>
+                      <p>Tasks: {point.value}</p>
+                    </div>
+                    <p className="text-[10px] text-center mt-sm text-secondary font-sans font-medium">{label}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* Recent Activities Section (Screen 7 Right) */}
+        {/* Recent Activities */}
         <div className="bg-white p-lg rounded-xl border border-border-subtle shadow-sm flex flex-col">
           <div className="flex justify-between items-center mb-lg">
             <h4 className="font-headline font-bold text-sm text-on-surface">Recent Activities</h4>
-            <button 
-              onClick={() => onNavigate('chat')} 
-              className="text-primary font-headline text-xs font-bold hover:underline"
-            >
-              View All
-            </button>
           </div>
-          
-          <div className="space-y-md flex-1 overflow-y-auto pr-xs custom-scrollbar">
-            {recentActivities.map((act) => (
-              <div key={act.id} className="flex gap-md text-xs">
-                <div className="relative shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-surface-container overflow-hidden flex items-center justify-center border border-border-subtle font-headline font-bold text-xs">
-                    {act.user.avatar ? (
-                      <img src={act.user.avatar} alt={act.user.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <span>{act.user.initials}</span>
-                    )}
-                  </div>
-                  {/* Mini-badge indicator */}
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-primary text-white rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold">
-                    {act.type === 'complete' ? '✓' : act.type === 'move' ? '⇄' : '✎'}
-                  </div>
-                </div>
 
-                <div className="min-w-0">
-                  <p className="text-on-surface leading-tight font-sans">
-                    <span className="font-bold">{act.user.name}</span> {act.action}{' '}
-                    <span className="text-primary font-medium hover:underline cursor-pointer">{act.target}</span>
-                  </p>
-                  <p className="text-[10px] text-secondary mt-[2px] font-sans">
-                    {act.timeAgo} • {act.category}
-                  </p>
+          <div className="space-y-md flex-1 overflow-y-auto pr-xs custom-scrollbar">
+            {loading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex gap-md">
+                  <Shimmer className="w-8 h-8 rounded-full shrink-0" />
+                  <div className="flex-1 space-y-xs">
+                    <Shimmer className="h-3 w-full" />
+                    <Shimmer className="h-2.5 w-2/3" />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : activities.length === 0 ? (
+              <p className="text-xs text-secondary italic text-center py-lg">No recent activity</p>
+            ) : (
+              activities.map((act) => {
+                const initials = act.actor.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+                return (
+                  <div key={act.activityId} className="flex gap-md text-xs">
+                    <div className="w-8 h-8 rounded-full bg-[#e5eeff] text-primary flex items-center justify-center font-bold text-[10px] shrink-0">
+                      {initials}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-on-surface leading-tight font-sans">
+                        <span className="font-bold">{act.actor}</span>{' '}
+                        <span className="text-secondary">{act.action}</span>{' '}
+                        <span className="text-primary font-medium">{act.target}</span>
+                      </p>
+                      <p className="text-[10px] text-secondary mt-[2px] font-sans">
+                        {formatDate(act.timestamp)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
 
-      {/* Upcoming Deadlines (Screen 7 Bottom Table) */}
+      {/* Project Progress */}
+      {(loading || projectProgress.length > 0) && (
+        <div className="bg-white rounded-xl border border-border-subtle shadow-sm overflow-hidden">
+          <div className="p-lg border-b border-border-subtle flex items-center justify-between">
+            <h4 className="font-headline font-bold text-sm text-on-surface">Project Progress</h4>
+            {data?.projectProgress?.overallProgress !== undefined && (
+              <span className="text-xs text-secondary font-headline">
+                Overall: <span className="font-bold text-primary">{data.projectProgress.overallProgress}%</span>
+              </span>
+            )}
+          </div>
+          <div className="p-lg space-y-md">
+            {loading ? (
+              Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="space-y-xs">
+                  <div className="flex justify-between">
+                    <Shimmer className="h-3 w-40" />
+                    <Shimmer className="h-3 w-10" />
+                  </div>
+                  <Shimmer className="h-2 w-full" />
+                </div>
+              ))
+            ) : (
+              projectProgress.map(proj => (
+                <div key={proj.projectId} className="space-y-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-sm">
+                      <span
+                        className="font-sans text-xs font-semibold text-on-surface cursor-pointer hover:text-primary hover:underline transition-colors"
+                        onClick={() => onNavigate('projects')}
+                      >
+                        {proj.name}
+                      </span>
+                      <span className={`px-2 py-[2px] rounded text-[9px] font-bold uppercase tracking-wider ${STATUS_STYLE[proj.status] ?? 'bg-[#eff4ff] text-primary'}`}>
+                        {proj.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-md text-[10px] text-secondary font-headline shrink-0">
+                      <span>{proj.completedTasks}/{proj.totalTasks} tasks</span>
+                      <span className="font-extrabold text-on-surface">{proj.progress}%</span>
+                    </div>
+                  </div>
+                  <div className="w-full h-2 bg-[#eff4ff] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-500"
+                      style={{ width: `${proj.progress}%` }}
+                    />
+                  </div>
+                  {proj.dueDate && (
+                    <p className="text-[10px] text-secondary flex items-center gap-xs">
+                      <CalendarDays className="w-3 h-3" />
+                      Due {formatDate(proj.dueDate)}
+                    </p>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Upcoming Deadlines */}
       <div className="bg-white rounded-xl border border-border-subtle shadow-sm overflow-hidden">
         <div className="p-lg flex justify-between items-center border-b border-border-subtle">
           <h4 className="font-headline font-bold text-sm text-on-surface">Upcoming Deadlines</h4>
-          <div className="flex gap-md">
-            <div className="flex bg-surface-container-low p-xs rounded-lg border border-border-subtle bg-opacity-50">
-              <button className="px-3 py-1 bg-white shadow-sm rounded-md text-[10px] font-headline font-bold text-primary">Today</button>
-              <button className="px-3 py-1 text-[10px] font-headline text-secondary hover:text-primary transition-colors">This Week</button>
-            </div>
-          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className="bg-[#f8fafc] border-b border-border-subtle">
               <tr className="select-none">
-                <th className="px-lg py-md font-headline text-[10px] font-semibold text-secondary uppercase tracking-wider">Task Name</th>
+                <th className="px-lg py-md font-headline text-[10px] font-semibold text-secondary uppercase tracking-wider">Task</th>
                 <th className="px-lg py-md font-headline text-[10px] font-semibold text-secondary uppercase tracking-wider">Assignee</th>
                 <th className="px-lg py-md font-headline text-[10px] font-semibold text-secondary uppercase tracking-wider">Priority</th>
                 <th className="px-lg py-md font-headline text-[10px] font-semibold text-secondary uppercase tracking-wider">Due Date</th>
@@ -266,71 +329,47 @@ export default function DashboardView({
               </tr>
             </thead>
             <tbody className="divide-y divide-border-subtle text-xs">
-              {upcomingDeadlines.map((task) => (
-                <tr 
-                  key={task.id} 
-                  onClick={() => onSelectTask && onSelectTask(task)}
-                  className="hover:bg-[#6161ff]/[0.02] cursor-pointer transition-colors"
-                >
-                  <td className="px-lg py-md font-medium text-on-surface font-sans">{task.title}</td>
-                  
-                  {/* Assignee display */}
-                  <td className="px-lg py-md">
-                    <div className="flex items-center gap-sm">
-                      <div className="w-6 h-6 rounded-full bg-surface-container border border-border-subtle overflow-hidden flex items-center justify-center font-headline font-bold text-[9px]">
-                        {task.assignee.avatar ? (
-                          <img src={task.assignee.avatar} alt="User" className="w-full h-full object-cover" />
-                        ) : (
-                          <span>{task.assignee.initials}</span>
-                        )}
-                      </div>
-                      <span className="text-on-surface-variant font-sans">{task.assignee.name}</span>
-                    </div>
-                  </td>
-
-                  {/* Priority Badge */}
-                  <td className="px-lg py-md">
-                    <span className={`inline-flex items-center px-sm py-[2px] rounded-full text-[9px] font-bold uppercase ${
-                      task.priority === 'High' 
-                        ? 'bg-[#ffdad6] text-[#93000a]' 
-                        : task.priority === 'Medium'
-                        ? 'bg-[#dfe0ff] text-[#161a32]'
-                        : 'bg-[#eff4ff] text-[#424560]'
-                    }`}>
-                      {task.priority}
-                    </span>
-                  </td>
-
-                  {/* Due Date */}
-                  <td className="px-lg py-md tnum text-on-surface-variant font-sans">{task.dueDate}</td>
-
-                  {/* Dynamic Status bar representation */}
-                  <td className="px-lg py-md">
-                    <div className="w-full bg-surface-container rounded-full h-1.5 max-w-[100px] overflow-hidden">
-                      <div 
-                        style={{
-                          width: task.status === 'In Progress' ? '65%' : task.status === 'Review' ? '85%' : task.status === 'Todo' ? '15%' : '5%'
-                        }}
-                        className={`h-1.5 rounded-full ${
-                          task.status === 'Review' ? 'bg-[#ffb68c]' : 'bg-[#4744e5]'
-                        }`}
-                      />
-                    </div>
+              {loading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <tr key={i}>
+                    <td className="px-lg py-md"><Shimmer className="h-3 w-40" /></td>
+                    <td className="px-lg py-md"><Shimmer className="h-3 w-24" /></td>
+                    <td className="px-lg py-md"><Shimmer className="h-5 w-16 rounded-full" /></td>
+                    <td className="px-lg py-md"><Shimmer className="h-3 w-24" /></td>
+                    <td className="px-lg py-md"><Shimmer className="h-5 w-20 rounded-full" /></td>
+                  </tr>
+                ))
+              ) : deadlines.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-lg py-xl text-center text-secondary font-headline text-xs">
+                    No upcoming deadlines
                   </td>
                 </tr>
-              ))}
+              ) : (
+                deadlines.map((item) => (
+                  <tr key={item.taskId} className="transition-colors hover:bg-[#f8f9ff]">
+                    <td className="px-lg py-md font-medium text-on-surface font-sans">{item.name}</td>
+                    <td className="px-lg py-md text-on-surface-variant font-sans">
+                      {item.assignee ?? <span className="italic text-secondary">Unassigned</span>}
+                    </td>
+                    <td className="px-lg py-md">
+                      <span className={`inline-flex items-center px-sm py-[2px] rounded-full text-[9px] font-bold uppercase ${PRIORITY_STYLE[item.priority?.toLowerCase()] ?? 'bg-[#eff4ff] text-secondary'}`}>
+                        {cap(item.priority)}
+                      </span>
+                    </td>
+                    <td className="px-lg py-md tnum text-on-surface-variant font-sans whitespace-nowrap">
+                      {formatDate(item.dueDate)}
+                    </td>
+                    <td className="px-lg py-md">
+                      <span className={`inline-flex items-center px-sm py-[2px] rounded-full text-[9px] font-bold uppercase ${STATUS_STYLE[item.status?.toLowerCase()] ?? 'bg-[#eff4ff] text-secondary'}`}>
+                        {cap(item.status)}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
-        </div>
-
-        <div className="p-md bg-bg-slate-50 border-t border-border-subtle flex justify-center">
-          <button 
-            onClick={() => onNavigate('kanban')}
-            className="text-primary hover:text-primary-container font-headline text-xs font-semibold flex items-center gap-xs cursor-pointer active:scale-95 transition-all"
-          >
-            <span>View Full Project Roadmap</span>
-            <span className="text-sm">→</span>
-          </button>
         </div>
       </div>
     </div>

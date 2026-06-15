@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Project, Task, ChatMessage, TaskStatus, TaskPriority } from './types';
-import { users, initialProjects, initialTasks, chatMessages as initialChatMessages, channels } from './data';
+import { users, chatMessages as initialChatMessages, channels } from './data';
 import Sidebar from './modules/Sidebar';
 import Header from './modules/Header';
 import DashboardView from './modules/DashboardView';
@@ -10,7 +10,10 @@ import KanbanView from './modules/KanbanView';
 import ChatView from './modules/ChatView';
 import LoginView from './modules/LoginView';
 import RegisterView from './modules/RegisterView';
-import { X, Check } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
+import { createProject, getAllProjects, mapApiProjectToLocal, resolveProjectError } from './services/projects/projectService';
+import { getAllTasks, mapApiTaskToLocal, resolveTaskError, mapApiTaskProjectToLocal } from './services/tasks/taskService';
+import { STORAGE_KEYS } from './constants/storageKeys';
 
 export default function App() {
   // Authentication & Navigation Route States
@@ -19,8 +22,12 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'projects' | 'tasks' | 'kanban' | 'chat'>('dashboard');
 
   // Unified In-Memory Datasets
-  const [projectsList, setProjectsList] = useState<Project[]>(initialProjects);
-  const [tasksList, setTasksList] = useState<Task[]>(initialTasks);
+  const [projectsList, setProjectsList] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [tasksList, setTasksList] = useState<Task[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
   const [selectedChannelId, setSelectedChannelId] = useState('ch-frontend');
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,8 +40,11 @@ export default function App() {
   // New Project Fields State
   const [newProjName, setNewProjName] = useState('');
   const [newProjDesc, setNewProjDesc] = useState('');
-  const [newProjCat, setNewProjCat] = useState('Mobile');
-  const [newProjDate, setNewProjDate] = useState('Dec 20, 2023');
+  const [newProjStartDate, setNewProjStartDate] = useState('');
+  const [newProjEndDate, setNewProjEndDate] = useState('');
+  const [newProjStatus, setNewProjStatus] = useState<'active' | 'on-hold' | 'completed'>('active');
+  const [projCreateLoading, setProjCreateLoading] = useState(false);
+  const [projCreateError, setProjCreateError] = useState<string | null>(null);
 
   // New Task Fields State
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -44,10 +54,73 @@ export default function App() {
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>('Medium');
   const [newTaskDate, setNewTaskDate] = useState('Oct 28, 2023');
 
+  // Fetch projects from API whenever a user session is active
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const fetchProjects = async () => {
+      setProjectsLoading(true);
+      setProjectsError(null);
+      try {
+        const apiProjects = await getAllProjects();
+        setProjectsList(apiProjects.map(mapApiProjectToLocal));
+      } catch (err: any) {
+        setProjectsError(resolveProjectError(err));
+      } finally {
+        setProjectsLoading(false);
+      }
+    };
+
+    fetchProjects();
+  }, [currentUser]);
+
+  // Helper function to fetch/refresh tasks and projects
+  const fetchTasksAndProjects = async () => {
+    if (!currentUser) return;
+
+    setTasksLoading(true);
+    setTasksError(null);
+    try {
+      const response = await getAllTasks();
+      // console.log('Fetched tasks and projects:', response);
+      // Create a lookup map of projectId -> projectName for task mapping
+      const projectNameMap: Record<string, string> = {};
+      if (response.projects && response.projects.length > 0) {
+        response.projects.forEach(p => {
+          projectNameMap[p._id] = p.name;
+        });
+        setProjectsList(response.projects.map(mapApiTaskProjectToLocal));
+      }
+
+      // Map tasks with correct project names
+      setTasksList(response.tasks.map(t => mapApiTaskToLocal(t, projectNameMap[t.projectId] || 'Unknown Project')));
+    } catch (err: any) {
+      setTasksError(resolveTaskError(err));
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  // Fetch tasks when user logs in
+  useEffect(() => {
+    if (!currentUser) return;
+    fetchTasksAndProjects();
+  }, [currentUser]);
+
+  // Fetch tasks when navigating to Tasks view (only if user is logged in)
+  useEffect(() => {
+    if (!currentUser || currentView !== 'tasks') return;
+    fetchTasksAndProjects();
+  }, [currentView]);
+
   // Reset helper
   const resetFormFields = () => {
     setNewProjName('');
     setNewProjDesc('');
+    setNewProjStartDate('');
+    setNewProjEndDate('');
+    setNewProjStatus('active');
+    setProjCreateError(null);
     setNewTaskTitle('');
     setNewTaskDesc('');
   };
@@ -137,22 +210,47 @@ export default function App() {
   };
 
   // Modal Creator Submission Handlers
-  const handleCreateProject = () => {
-    if (!newProjName.trim()) return;
-    const newProject: Project = {
-      id: `p-${Date.now()}`,
-      name: newProjName.trim(),
-      description: newProjDesc.trim() || 'No project summary details provided.',
-      progress: 0,
-      status: 'In Progress',
-      dueDate: newProjDate,
-      category: newProjCat,
-      team: [currentUser || users.alex]
-    };
+  const handleCreateProject = async () => {
+    if (!newProjName.trim() || !newProjStartDate || !newProjEndDate) return;
 
-    setProjectsList(prev => [newProject, ...prev]);
-    setShowCreateModal(false);
-    resetFormFields();
+    // Get workspaceId from stored user data or token payload
+    const storedUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    const parsedUser = storedUser ? JSON.parse(storedUser) : null;
+    const workspaceId = parsedUser?.workspaceId ?? parsedUser?.organization ?? '';
+
+    setProjCreateLoading(true);
+    setProjCreateError(null);
+
+    try {
+      const created = await createProject({
+        ...(workspaceId ? { workspaceId } : {}),
+        name: newProjName.trim(),
+        description: newProjDesc.trim() || 'No project summary provided.',
+        status: newProjStatus,
+        startDate: new Date(newProjStartDate).toISOString(),
+        endDate: new Date(newProjEndDate).toISOString(),
+      });
+
+      // Map API response to local Project shape
+      const newProject: Project = {
+        id: created._id,
+        name: created.name,
+        description: created.description,
+        progress: created.progress,
+        status: 'In Progress',
+        dueDate: new Date(created.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        category: 'Mobile',
+        team: [currentUser!],
+      };
+
+      setProjectsList(prev => [newProject, ...prev]);
+      setShowCreateModal(false);
+      resetFormFields();
+    } catch (err: any) {
+      setProjCreateError(resolveProjectError(err));
+    } finally {
+      setProjCreateLoading(false);
+    }
   };
 
   const handleCreateTask = () => {
@@ -249,10 +347,7 @@ export default function App() {
         <div className="flex-1 overflow-y-auto px-lg py-md custom-scrollbar bg-[#f8f9ff]">
           {currentView === 'dashboard' && (
             <DashboardView
-              projects={projectsList}
-              tasks={tasksList}
               onNavigate={setCurrentView}
-              onSelectTask={handleSelectTaskFromOuter}
             />
           )}
 
@@ -264,16 +359,21 @@ export default function App() {
                 setShowCreateModal(true);
               }}
               onNavigate={setCurrentView}
+              isLoading={projectsLoading}
+              error={projectsError}
             />
           )}
 
           {currentView === 'tasks' && (
             <TasksView
               tasks={getFilteredTasks()}
+              projects={projectsList}
               onSelectTask={handleSelectTaskFromOuter}
-              onOpenCreateModal={() => {
-                setModalType('task');
-                setShowCreateModal(true);
+              isLoading={tasksLoading}
+              error={tasksError}
+              onTaskCreated={() => {
+                // Refetch tasks and projects after successful task creation
+                fetchTasksAndProjects();
               }}
             />
           )}
@@ -315,7 +415,7 @@ export default function App() {
               <div className="flex items-center gap-sm">
                 <span className="w-2.5 h-2.5 bg-primary rounded-full" />
                 <h3 className="font-headline font-bold text-sm text-on-surface">
-                  {modalType === 'project' ? 'Initiate New Project' : 'Draft New Sprint Task'}
+                  Initiate New Project
                 </h3>
               </div>
               <button
@@ -329,170 +429,87 @@ export default function App() {
               </button>
             </div>
 
-            {/* Type selector toggle */}
-            <div className="flex justify-center bg-bg-slate-50 border border-border-subtle p-px rounded-xl">
+            {/* Project Form */}
+            <div className="space-y-sm text-xs text-on-surface-variant font-sans select-text">
+              <div>
+                <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Project Name *</label>
+                <input
+                  type="text"
+                  value={newProjName}
+                  onChange={(e) => setNewProjName(e.target.value)}
+                  placeholder="e.g. Vision Mobile App Redesign"
+                  className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs focus:border-primary outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Description</label>
+                <textarea
+                  value={newProjDesc}
+                  onChange={(e) => setNewProjDesc(e.target.value)}
+                  placeholder="Describe the project goals and scope..."
+                  className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl p-md text-xs min-h-[80px] resize-none outline-none focus:border-primary"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Status</label>
+                <select
+                  value={newProjStatus}
+                  onChange={(e) => setNewProjStatus(e.target.value as 'active' | 'on-hold' | 'completed')}
+                  className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-3 text-xs outline-none focus:border-primary"
+                >
+                  <option value="active">Active</option>
+                  <option value="on-hold">On Hold</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-sm">
+                <div>
+                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Start Date *</label>
+                  <input
+                    type="date"
+                    value={newProjStartDate}
+                    onChange={(e) => setNewProjStartDate(e.target.value)}
+                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs outline-none focus:border-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">End Date *</label>
+                  <input
+                    type="date"
+                    value={newProjEndDate}
+                    onChange={(e) => setNewProjEndDate(e.target.value)}
+                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              {/* Error message */}
+              {projCreateError && (
+                <p className="text-[11px] text-red-500 bg-red-50 border border-red-200 rounded-lg px-sm py-xs">
+                  {projCreateError}
+                </p>
+              )}
+
               <button
-                type="button"
-                onClick={() => setModalType('task')}
-                className={`flex-1 py-1 px-3 text-xs font-headline font-semibold rounded-lg transition-colors ${modalType === 'task' ? 'bg-white text-primary shadow-sm' : 'text-secondary hover:text-primary'
-                  }`}
+                onClick={handleCreateProject}
+                disabled={!newProjName.trim() || !newProjStartDate || !newProjEndDate || projCreateLoading}
+                className="w-full bg-primary hover:bg-[#6161ff] text-white py-2 px-4 rounded-xl text-xs font-headline font-bold mt-sm transition-all shadow-lg select-none disabled:opacity-50 flex items-center justify-center gap-xs"
               >
-                Sprint Task
-              </button>
-              <button
-                type="button"
-                onClick={() => setModalType('project')}
-                className={`flex-1 py-1 px-3 text-xs font-headline font-semibold rounded-lg transition-colors ${modalType === 'project' ? 'bg-white text-primary shadow-sm' : 'text-secondary hover:text-primary'
-                  }`}
-              >
-                Workspace Project
+                {projCreateLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Creating...</span>
+                  </>
+                ) : (
+                  'Create Project'
+                )}
               </button>
             </div>
-
-            {/* Dynamic fields */}
-            {modalType === 'project' ? (
-              <div className="space-y-sm text-xs text-on-surface-variant font-sans select-text">
-                <div>
-                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Project Name</label>
-                  <input
-                    type="text"
-                    value={newProjName}
-                    onChange={(e) => setNewProjName(e.target.value)}
-                    placeholder="e.g. Vision Mobile App Redesign"
-                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs focus:border-primary outline-none"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Summary details</label>
-                  <textarea
-                    value={newProjDesc}
-                    onChange={(e) => setNewProjDesc(e.target.value)}
-                    placeholder="Overhaul layout grids, responsive columns, and illustrations..."
-                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl p-md text-xs min-h-[80px] resize-none outline-none focus:border-primary"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-sm">
-                  <div>
-                    <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Category</label>
-                    <select
-                      value={newProjCat}
-                      onChange={(e) => setNewProjCat(e.target.value)}
-                      className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-3 text-xs"
-                    >
-                      <option value="Mobile">Mobile</option>
-                      <option value="Database">Database</option>
-                      <option value="Security">Security</option>
-                      <option value="Strategy">Strategy</option>
-                      <option value="Design">Design System</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Due Date</label>
-                    <input
-                      type="text"
-                      value={newProjDate}
-                      onChange={(e) => setNewProjDate(e.target.value)}
-                      className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs text-center"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleCreateProject}
-                  disabled={!newProjName.trim()}
-                  className="w-full bg-primary hover:bg-[#6161ff] text-white py-2 px-4 rounded-xl text-xs font-headline font-bold mt-sm transition-all shadow-lg select-none disabled:opacity-50"
-                >
-                  Create Project
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-sm text-xs text-on-surface-variant font-sans select-text">
-                <div>
-                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Task Title</label>
-                  <input
-                    type="text"
-                    value={newTaskTitle}
-                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                    placeholder="e.g. Integration of WebSocket Client"
-                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs focus:border-primary outline-none"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Description</label>
-                  <textarea
-                    value={newTaskDesc}
-                    onChange={(e) => setNewTaskDesc(e.target.value)}
-                    placeholder="Provide developer-centric goals..."
-                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl p-md text-xs min-h-[60px] resize-none outline-none focus:border-primary"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Associate Project</label>
-                  <select
-                    value={newTaskProjId}
-                    onChange={(e) => setNewTaskProjId(e.target.value)}
-                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-3 text-xs"
-                  >
-                    {projectsList.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-sm">
-                  <div>
-                    <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Assignee</label>
-                    <select
-                      value={newTaskAssigneeId}
-                      onChange={(e) => setNewTaskAssigneeId(e.target.value)}
-                      className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-3 text-xs"
-                    >
-                      {Object.values(users).map(u => (
-                        <option key={u.id} value={u.id}>{u.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Priority</label>
-                    <select
-                      value={newTaskPriority}
-                      onChange={(e) => setNewTaskPriority(e.target.value as TaskPriority)}
-                      className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-3 text-xs"
-                    >
-                      <option value="High">High</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Low">Low</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-[#5e617d] uppercase tracking-wider block mb-xs">Due Timeline</label>
-                  <input
-                    type="text"
-                    value={newTaskDate}
-                    onChange={(e) => setNewTaskDate(e.target.value)}
-                    className="w-full bg-[#f8fafc] border border-[#c7c4d8] rounded-xl py-sm px-md text-xs text-center"
-                  />
-                </div>
-
-                <button
-                  onClick={handleCreateTask}
-                  disabled={!newTaskTitle.trim()}
-                  className="w-full bg-primary hover:bg-[#6161ff] text-white py-2 px-4 rounded-xl text-xs font-headline font-bold mt-sm transition-all shadow-lg select-none disabled:opacity-50"
-                >
-                  Create Task Chores
-                </button>
-              </div>
-            )}
 
           </div>
         </div>
