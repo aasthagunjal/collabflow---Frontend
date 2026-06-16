@@ -30,12 +30,18 @@ export default function ProjectsView({
 }: ProjectsViewProps) {
   const [activeTab, setActiveTab] = useState<'Active' | 'Completed' | 'Archived'>('Active');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-
+  console.log('Projects received:', projects);
   // Filter projects relative to active tabs
   const filteredProjects = projects.filter((project) => {
-    if (activeTab === 'Active') return project.status !== 'Completed' && project.status !== 'Archived';
-    if (activeTab === 'Completed') return project.status === 'Completed';
-    return project.status === 'Archived';
+    const status = project.status.toLowerCase();
+
+    if (activeTab === 'Active')
+      return status !== 'completed' && status !== 'archived';
+
+    if (activeTab === 'Completed')
+      return status === 'completed';
+
+    return status === 'archived';
   });
 
   // Helper to resolve suitable category icons
@@ -55,14 +61,29 @@ export default function ProjectsView({
   };
 
   // Status badges color maps
-  const getStatusStyle = (status: ProjectStatus) => {
-    switch (status) {
-      case 'Completed':
+  // const getStatusStyle = (status: ProjectStatus) => {
+  //   switch (status) {
+  //     case 'Completed':
+  //       return 'bg-success-emerald/10 text-success-emerald';
+  //     case 'On Hold':
+  //       return 'bg-warning-amber/10 text-warning-amber';
+  //     case 'Priority Alpha':
+  //       return 'bg-primary/10 text-primary';
+  //     default:
+  //       return 'bg-[#eff4ff] text-primary';
+  //   }
+  // };
+  const getStatusStyle = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'completed':
         return 'bg-success-emerald/10 text-success-emerald';
-      case 'On Hold':
-        return 'bg-warning-amber/10 text-warning-amber';
-      case 'Priority Alpha':
-        return 'bg-primary/10 text-primary';
+
+      case 'archived':
+        return 'bg-gray-100 text-gray-600';
+
+      case 'active':
+        return 'bg-[#eff4ff] text-primary';
+
       default:
         return 'bg-[#eff4ff] text-primary';
     }

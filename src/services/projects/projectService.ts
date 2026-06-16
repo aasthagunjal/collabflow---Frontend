@@ -105,19 +105,41 @@ export const createProject = async (
 /**
  * Maps an API project to the local Project shape used by the UI.
  */
+// export const mapApiProjectToLocal = (p: ApiProject) => ({
+//     id: p._id,
+//     name: p.name,
+//     description: p.description,
+//     progress: p.progress ?? 0,
+//     status: 'In Progress' as const,
+//     dueDate: new Date(p.endDate).toLocaleDateString('en-US', {
+//         month: 'short',
+//         day: 'numeric',
+//         year: 'numeric',
+//     }),
+//     category: 'Mobile',
+//     team: [] as any[],
+// });
 export const mapApiProjectToLocal = (p: ApiProject) => ({
     id: p._id,
     name: p.name,
     description: p.description,
     progress: p.progress ?? 0,
-    status: 'In Progress' as const,
+
+    status:
+        p.status === 'completed'
+            ? 'Completed'
+            : p.status === 'archived'
+                ? 'Archived'
+                : 'Active',
+
     dueDate: new Date(p.endDate).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
     }),
+
     category: 'Mobile',
-    team: [] as any[],
+    team: [],
 });
 
 /**

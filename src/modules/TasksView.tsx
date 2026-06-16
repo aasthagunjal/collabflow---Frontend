@@ -222,7 +222,7 @@ export default function TasksView({
             <table className="w-full text-left border-collapse">
               <thead className="bg-[#f8fafc] border-b border-border-subtle">
                 <tr className="select-none">
-                  <th className="px-lg py-md font-headline text-[10px] font-extrabold text-[#5a5c79] uppercase tracking-wider w-32">Task ID</th>
+                  {/* <th className="px-lg py-md font-headline text-[10px] font-extrabold text-[#5a5c79] uppercase tracking-wider w-32">Task ID</th> */}
                   <th className="px-lg py-md font-headline text-[10px] font-extrabold text-[#5a5c79] uppercase tracking-wider">Title</th>
                   <th className="px-lg py-md font-headline text-[10px] font-extrabold text-[#5a5c79] uppercase tracking-wider">Project</th>
                   <th className="px-lg py-md font-headline text-[10px] font-extrabold text-[#5a5c79] uppercase tracking-wider">Assignee</th>
@@ -273,7 +273,7 @@ export default function TasksView({
                           className="transition-colors group"
                         >
                           {/* Task ID */}
-                          <td className="px-lg py-md font-bold text-primary tnum font-headline shrink-0">{task.id}</td>
+                          {/* <td className="px-lg py-md font-bold text-primary tnum font-headline shrink-0">{task.id}</td> */}
 
                           {/* Title */}
                           <td className="px-lg py-md font-semibold text-on-surface font-sans max-w-[280px] truncate">{task.title}</td>
