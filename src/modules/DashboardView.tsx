@@ -177,7 +177,6 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
             <div className="h-64 flex items-end justify-between gap-md pt-md">
               {Array.from({ length: 7 }).map((_, i) => (
                 <div key={i} className="flex-1 flex flex-col justify-end items-center h-full gap-sm">
-                  {/* <Shimmer className={`w-full`} style={{ height: `${30 + Math.random() * 50}%` } as any} /> */}
                   <Shimmer
                     className="w-full"
                     {...({
